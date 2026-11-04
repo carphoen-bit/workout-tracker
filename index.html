@@ -21,7 +21,7 @@
     <div class="box">
       <div class="progressTop"><strong id="progressText">0 / 0 세트</strong><span class="small" id="progressPct">0%</span></div>
       <div class="bar"><div id="barFill"></div></div>
-      <div class="actions" style="grid-template-columns:1fr"><button class="btn primary" id="addBtn">+ 운동 추가</button></div>
+      <div class="actions"><button class="btn primary" id="addBtn">+ 운동 추가</button><button class="btn" id="presetBtn">프리셋</button></div>
     </div>
     <div id="todayList"></div>
     <div id="empty" class="box empty">운동을 추가해서 오늘 루틴을 만들어봐.</div>
@@ -45,6 +45,13 @@
   <button class="btn primary" id="addSelected" style="width:100%;margin-top:14px">선택한 운동 오늘에 추가</button>
 </div></div>
 
+
+<div class="modal" id="presetModal"><div class="sheet">
+  <div class="sheetHead"><div><strong style="font-size:20px">운동 프리셋</strong><div class="small">자주 하는 루틴을 저장하고 한 번에 불러올 수 있어.</div></div><button class="btn" data-preset-close>✕</button></div>
+  <button class="btn primary" id="savePreset" style="width:100%;margin-top:14px">현재 운동 목록을 프리셋으로 저장</button>
+  <div id="presetList" style="margin-top:12px"></div>
+</div></div>
+
 <div class="modal" id="historyModal"><div class="sheet">
   <div class="sheetHead"><div><strong style="font-size:20px" id="historyTitle">운동 기록</strong></div><button class="btn" data-history-close>✕</button></div>
   <div id="historyDetail"></div>
@@ -64,11 +71,12 @@ const S={get(k,d){try{return JSON.parse(localStorage.getItem(k))??d}catch{return
 let library=S.get('wt_library',Object.fromEntries(CATS.map(c=>[c,DEFAULTS[c].map(n=>({name:n,custom:false}))])));
 let today=S.get('wt_today',[]);
 let history=S.get('wt_history',[]);
+let presets=S.get('wt_presets',[]);
 let activeCat='등',selected=new Set(),calDate=new Date(),timerEnd=0,timerId=null,timerExId=null;
 const q=s=>document.querySelector(s),qa=s=>[...document.querySelectorAll(s)];
 function iso(d=new Date()){const z=new Date(d.getTime()-d.getTimezoneOffset()*60000);return z.toISOString().slice(0,10)}
 function esc(s){return String(s).replace(/[&<>'"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[m]))}
-function save(){S.set('wt_library',library);S.set('wt_today',today);S.set('wt_history',history)}
+function save(){S.set('wt_library',library);S.set('wt_today',today);S.set('wt_history',history);S.set('wt_presets',presets)}
 function prev(name){for(let i=history.length-1;i>=0;i--){const x=history[i].exercises.find(e=>e.name===name);if(x)return x}return null}
 function uid(){return (crypto.randomUUID&&crypto.randomUUID())||String(Date.now()+Math.random())}
 function makeEx(name,cat){const p=prev(name);return{id:uid(),name,cat,weight:p?.weight??WEIGHTS[name]??0,note:'',rest:p?.rest??90,open:false,sets:p?.sets?.length?p.sets.map(s=>({reps:s.reps||10,done:false,fail:false})):[{reps:10,done:false,fail:false},{reps:10,done:false,fail:false},{reps:10,done:false,fail:false}]}}
@@ -192,8 +200,82 @@ document.addEventListener('mouseup',()=>{
 renderToday();renderCalendar();alert('오운완! 오늘 기록을 저장했어. ✅')}
 function renderCalendar(){const y=calDate.getFullYear(),m=calDate.getMonth();q('#monthTitle').textContent=y+'년 '+(m+1)+'월';const f=new Date(y,m,1),l=new Date(y,m+1,0);let html=['일','월','화','수','목','금','토'].map(d=>'<div class="dow">'+d+'</div>').join('');for(let i=0;i<f.getDay();i++)html+='<div></div>';for(let d=1;d<=l.getDate();d++){const key=iso(new Date(y,m,d));html+='<div class="day '+(history.some(h=>h.date===key)?'done':'')+'" data-day="'+key+'">'+d+'</div>'}q('#calendarGrid').innerHTML=html}
 function showHistory(date){const h=history.find(x=>x.date===date);if(!h)return;q('#historyTitle').textContent=date+' 운동';q('#historyDetail').innerHTML=h.exercises.map(e=>'<div class="historyExercise"><strong>'+esc(e.name)+'</strong><div class="small">'+esc(e.cat)+(e.cat!=='유산소'?' · '+(e.weight||0)+'kg':'')+'</div><div style="margin-top:6px">'+e.sets.map((s,i)=>(i+1)+'세트 '+s.reps+(s.fail?' F':'')).join(' · ')+'</div>'+(e.note?'<div class="small" style="margin-top:5px">메모: '+esc(e.note)+'</div>':'')+'</div>').join('');q('#historyModal').classList.add('open')}
+
+function presetSnapshot(ex){
+  return {
+    name:ex.name,
+    cat:ex.cat,
+    weight:ex.weight||0,
+    rest:ex.rest||90,
+    note:ex.note||'',
+    sets:ex.sets.map(s=>({reps:s.reps||10}))
+  };
+}
+function fromPreset(ex){
+  return {
+    id:uid(),
+    name:ex.name,
+    cat:ex.cat,
+    weight:ex.weight||0,
+    rest:ex.rest||90,
+    note:ex.note||'',
+    open:false,
+    sets:(ex.sets&&ex.sets.length?ex.sets:[{reps:10},{reps:10},{reps:10}]).map(s=>({reps:s.reps||10,done:false,fail:false}))
+  };
+}
+function renderPresets(){
+  const el=q('#presetList');
+  if(!presets.length){
+    el.innerHTML='<div class="empty" style="padding:22px 8px">저장된 프리셋이 없어.</div>';
+    return;
+  }
+  el.innerHTML=presets.map((p,i)=>
+    '<div class="box" style="margin-top:8px">'+
+      '<div class="head"><div><strong>'+esc(p.name)+'</strong><div class="small">'+p.exercises.map(x=>esc(x.name)).join(' · ')+'</div></div></div>'+
+      '<div class="actions"><button class="btn primary" data-loadpreset="'+i+'">불러오기</button><button class="btn" data-delpreset="'+i+'">삭제</button></div>'+
+    '</div>'
+  ).join('');
+}
+function openPresets(){
+  renderPresets();
+  q('#presetModal').classList.add('open');
+}
+function saveCurrentAsPreset(){
+  if(!today.length)return alert('저장할 운동 목록이 없어.');
+  const name=prompt('프리셋 이름을 입력해줘.','전신 A');
+  if(!name||!name.trim())return;
+  const clean=name.trim();
+  const existing=presets.findIndex(p=>p.name===clean);
+  const data={name:clean,exercises:today.map(presetSnapshot),updatedAt:new Date().toISOString()};
+  if(existing>=0){
+    if(!confirm('같은 이름의 프리셋이 있어. 덮어쓸까?'))return;
+    presets[existing]=data;
+  }else{
+    presets.push(data);
+  }
+  save();
+  renderPresets();
+}
+function loadPreset(i){
+  const p=presets[i];
+  if(!p)return;
+  if(today.length&&!confirm('현재 오늘 운동을 프리셋으로 바꿀까?'))return;
+  today=p.exercises.map(fromPreset);
+  save();
+  q('#presetModal').classList.remove('open');
+  renderToday();
+}
+function deletePreset(i){
+  const p=presets[i];
+  if(!p)return;
+  if(!confirm('“'+p.name+'” 프리셋을 삭제할까?'))return;
+  presets.splice(i,1);
+  save();
+  renderPresets();
+}
+
 function switchView(v){q('#todayView').classList.toggle('hidden',v!=='today');q('#calendarView').classList.toggle('hidden',v!=='calendar');qa('.tabs button').forEach(b=>b.classList.toggle('active',b.dataset.view===v));q('.bottom').classList.toggle('hidden',v!=='today');if(v==='calendar')renderCalendar()}
-document.addEventListener('click',e=>{const t=e.target;if(t.dataset.view)return switchView(t.dataset.view);if(t.id==='addBtn'||t.id==='quickAdd')return openPicker();if(t.hasAttribute('data-close'))return q('#picker').classList.remove('open');if(t.hasAttribute('data-history-close'))return q('#historyModal').classList.remove('open');if(t.dataset.cat){activeCat=t.dataset.cat;return renderPicker()}if(t.id==='saveCustom'){const n=q('#customName').value.trim(),c=q('#customCat').value;if(!n)return alert('운동 이름을 입력해줘.');if(library[c].some(x=>x.name===n))return alert('이미 있는 운동이야.');library[c].push({name:n,custom:true});q('#customName').value='';activeCat=c;save();return renderPicker()}if(t.id==='addSelected'){selected.forEach(k=>{const [c,n]=k.split('|');if(!today.some(x=>x.name===n))today.push(makeEx(n,c))});q('#picker').classList.remove('open');return renderToday()}if(t.closest&&t.closest('[data-drag]'))return;const summary=t.closest&&t.closest('.exerciseSummary[data-toggle]');if(summary){today[+summary.dataset.toggle].open=!today[+summary.dataset.toggle].open;return renderToday()}if(t.dataset.remove!==undefined){today.splice(+t.dataset.remove,1);return renderToday()}if(t.dataset.addset!==undefined){today[+t.dataset.addset].sets.push({reps:10,done:false,fail:false});return renderToday()}if(t.dataset.delset){let [i,j]=t.dataset.delset.split(':').map(Number);if(today[i].sets.length>1)today[i].sets.splice(j,1);return renderToday()}if(t.dataset.wm!==undefined){const ex=today[+t.dataset.wm];ex.weight=Math.max(0,+(ex.weight-2.5).toFixed(2));return renderToday()}if(t.dataset.wp!==undefined){const ex=today[+t.dataset.wp];ex.weight=+(ex.weight+2.5).toFixed(2);return renderToday()}if(t.dataset.check){let [i,j]=t.dataset.check.split(':').map(Number);today[i].sets[j].done=!today[i].sets[j].done;if(today[i].sets[j].done)startTimer(today[i]);else renderToday();return}if(t.dataset.fail){let [i,j]=t.dataset.fail.split(':').map(Number);today[i].sets[j].fail=!today[i].sets[j].fail;return renderToday()}if(t.dataset.rest!==undefined){const ex=today[+t.dataset.rest];const v=prompt('휴식시간(초)',ex.rest);if(v&&+v>0){ex.rest=+v;renderToday()}return}if(t.dataset.plus30!==undefined){timerEnd+=30000;return updateTimer()}if(t.dataset.skip!==undefined){timerExId=null;clearInterval(timerId);return renderToday()}if(t.id==='finishBtn')return finish();if(t.id==='prevMonth'){calDate=new Date(calDate.getFullYear(),calDate.getMonth()-1,1);return renderCalendar()}if(t.id==='nextMonth'){calDate=new Date(calDate.getFullYear(),calDate.getMonth()+1,1);return renderCalendar()}if(t.dataset.day)return showHistory(t.dataset.day)});
+document.addEventListener('click',e=>{const t=e.target;if(t.dataset.view)return switchView(t.dataset.view);if(t.id==='addBtn'||t.id==='quickAdd')return openPicker();if(t.id==='presetBtn')return openPresets();if(t.hasAttribute('data-close'))return q('#picker').classList.remove('open');if(t.hasAttribute('data-history-close'))return q('#historyModal').classList.remove('open');if(t.hasAttribute('data-preset-close'))return q('#presetModal').classList.remove('open');if(t.id==='savePreset')return saveCurrentAsPreset();if(t.dataset.loadpreset!==undefined)return loadPreset(+t.dataset.loadpreset);if(t.dataset.delpreset!==undefined)return deletePreset(+t.dataset.delpreset);if(t.dataset.cat){activeCat=t.dataset.cat;return renderPicker()}if(t.id==='saveCustom'){const n=q('#customName').value.trim(),c=q('#customCat').value;if(!n)return alert('운동 이름을 입력해줘.');if(library[c].some(x=>x.name===n))return alert('이미 있는 운동이야.');library[c].push({name:n,custom:true});q('#customName').value='';activeCat=c;save();return renderPicker()}if(t.id==='addSelected'){selected.forEach(k=>{const [c,n]=k.split('|');if(!today.some(x=>x.name===n))today.push(makeEx(n,c))});q('#picker').classList.remove('open');return renderToday()}if(t.closest&&t.closest('[data-drag]'))return;const summary=t.closest&&t.closest('.exerciseSummary[data-toggle]');if(summary){today[+summary.dataset.toggle].open=!today[+summary.dataset.toggle].open;return renderToday()}if(t.dataset.remove!==undefined){today.splice(+t.dataset.remove,1);return renderToday()}if(t.dataset.addset!==undefined){today[+t.dataset.addset].sets.push({reps:10,done:false,fail:false});return renderToday()}if(t.dataset.delset){let [i,j]=t.dataset.delset.split(':').map(Number);if(today[i].sets.length>1)today[i].sets.splice(j,1);return renderToday()}if(t.dataset.wm!==undefined){const ex=today[+t.dataset.wm];ex.weight=Math.max(0,+(ex.weight-2.5).toFixed(2));return renderToday()}if(t.dataset.wp!==undefined){const ex=today[+t.dataset.wp];ex.weight=+(ex.weight+2.5).toFixed(2);return renderToday()}if(t.dataset.check){let [i,j]=t.dataset.check.split(':').map(Number);today[i].sets[j].done=!today[i].sets[j].done;if(today[i].sets[j].done)startTimer(today[i]);else renderToday();return}if(t.dataset.fail){let [i,j]=t.dataset.fail.split(':').map(Number);today[i].sets[j].fail=!today[i].sets[j].fail;return renderToday()}if(t.dataset.rest!==undefined){const ex=today[+t.dataset.rest];const v=prompt('휴식시간(초)',ex.rest);if(v&&+v>0){ex.rest=+v;renderToday()}return}if(t.dataset.plus30!==undefined){timerEnd+=30000;return updateTimer()}if(t.dataset.skip!==undefined){timerExId=null;clearInterval(timerId);return renderToday()}if(t.id==='finishBtn')return finish();if(t.id==='prevMonth'){calDate=new Date(calDate.getFullYear(),calDate.getMonth()-1,1);return renderCalendar()}if(t.id==='nextMonth'){calDate=new Date(calDate.getFullYear(),calDate.getMonth()+1,1);return renderCalendar()}if(t.dataset.day)return showHistory(t.dataset.day)});
 document.addEventListener('change',e=>{const t=e.target;if(t.dataset.pick!==undefined){t.checked?selected.add(t.dataset.pick):selected.delete(t.dataset.pick)}if(t.dataset.w!==undefined){today[+t.dataset.w].weight=Number(t.value)||0;save()}if(t.dataset.r){let [i,j]=t.dataset.r.split(':').map(Number);today[i].sets[j].reps=Math.max(0,Number(t.value)||0);save()}if(t.dataset.note!==undefined){today[+t.dataset.note].note=t.value;save()}});
 renderToday();renderCalendar();
 </script>
