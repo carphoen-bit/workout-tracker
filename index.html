@@ -100,9 +100,19 @@ function renderPicker(){q('#catTabs').innerHTML=CATS.map(c=>'<button class="pill
 function openPicker(){selected=new Set();activeCat='등';renderPicker();q('#picker').classList.add('open')}
 function startTimer(ex){timerExId=ex.id;timerEnd=Date.now()+ex.rest*1000;clearInterval(timerId);timerId=setInterval(updateTimer,250);renderToday()}
 function updateTimer(){if(!timerExId)return;const ex=today.find(e=>e.id===timerExId);if(!ex){timerExId=null;clearInterval(timerId);return}const sec=Math.max(0,Math.ceil((timerEnd-Date.now())/1000));const el=q('#timer-'+ex.id);if(el)el.textContent=String(Math.floor(sec/60)).padStart(2,'0')+':'+String(sec%60).padStart(2,'0');if(sec<=0){clearInterval(timerId);if(navigator.vibrate)navigator.vibrate([200,120,200]);timerExId=null;setTimeout(renderToday,300)}}
-function finish(){if(!today.length)return alert('오늘 운동을 먼저 추가해줘.');const rec={date:iso(),endedAt:new Date().toISOString(),exercises:JSON.parse(JSON.stringify(today))};history=history.filter(h=>h.date!==rec.date);history.push(rec);today=[];timerExId=null;clearInterval(timerId);save();
-
-
+function finish(){
+  if(!today.length)return alert('오늘 운동을 먼저 추가해줘.');
+  const rec={date:iso(),endedAt:new Date().toISOString(),exercises:JSON.parse(JSON.stringify(today))};
+  history=history.filter(h=>h.date!==rec.date);
+  history.push(rec);
+  today=[];
+  timerExId=null;
+  clearInterval(timerId);
+  save();
+  renderToday();
+  renderCalendar();
+  alert('오운완! 오늘 기록을 저장했어. ✅');
+}
 
 let dragIndex=null,dragHandle=null,lastTargetIndex=null;
 
@@ -111,10 +121,10 @@ function getCardIndexFromY(y){
   if(!cards.length)return -1;
   for(let i=0;i<cards.length;i++){
     const r=cards[i].getBoundingClientRect();
-    if(y>=r.top && y<=r.bottom) return i;
+    if(y>=r.top && y<=r.bottom)return i;
   }
-  if(y<cards[0].getBoundingClientRect().top) return 0;
-  if(y>cards[cards.length-1].getBoundingClientRect().bottom) return cards.length-1;
+  if(y<cards[0].getBoundingClientRect().top)return 0;
+  if(y>cards[cards.length-1].getBoundingClientRect().bottom)return cards.length-1;
   return -1;
 }
 
@@ -127,7 +137,10 @@ function finishDrag(){
   if(dragIndex===null)return;
   const from=dragIndex,to=lastTargetIndex;
   clearDragVisuals();
-  dragIndex=null;dragHandle=null;lastTargetIndex=null;
+  dragIndex=null;
+  dragHandle=null;
+  lastTargetIndex=null;
+  document.body.style.overflow='';
   if(to!==null && to>=0 && to!==from){
     const moved=today.splice(from,1)[0];
     today.splice(to,0,moved);
@@ -139,7 +152,6 @@ function finishDrag(){
 document.addEventListener('touchstart',e=>{
   const h=e.target.closest&&e.target.closest('[data-drag]');
   if(!h)return;
-  const touch=e.touches[0];
   dragIndex=+h.dataset.drag;
   lastTargetIndex=dragIndex;
   dragHandle=h;
@@ -160,18 +172,19 @@ document.addEventListener('touchmove',e=>{
   }
 },{passive:false});
 
-document.addEventListener('touchend',e=>{
+document.addEventListener('touchend',()=>{
   if(dragIndex===null)return;
-  document.body.style.overflow='';
   finishDrag();
 });
+
 document.addEventListener('touchcancel',()=>{
   document.body.style.overflow='';
   clearDragVisuals();
-  dragIndex=null;dragHandle=null;lastTargetIndex=null;
+  dragIndex=null;
+  dragHandle=null;
+  lastTargetIndex=null;
 });
 
-// desktop mouse fallback
 document.addEventListener('mousedown',e=>{
   const h=e.target.closest&&e.target.closest('[data-drag]');
   if(!h)return;
@@ -181,8 +194,9 @@ document.addEventListener('mousedown',e=>{
   dragHandle=h;
   h.classList.add('dragging');
 });
+
 document.addEventListener('mousemove',e=>{
-  if(dragIndex===null || !dragHandle)return;
+  if(dragIndex===null||!dragHandle)return;
   e.preventDefault();
   const cards=[...document.querySelectorAll('#todayList .card')];
   cards.forEach(x=>x.classList.remove('drag-over'));
@@ -192,12 +206,12 @@ document.addEventListener('mousemove',e=>{
     if(cards[idx])cards[idx].classList.add('drag-over');
   }
 });
+
 document.addEventListener('mouseup',()=>{
   if(dragIndex===null)return;
   finishDrag();
 });
 
-renderToday();renderCalendar();alert('오운완! 오늘 기록을 저장했어. ✅')}
 function renderCalendar(){const y=calDate.getFullYear(),m=calDate.getMonth();q('#monthTitle').textContent=y+'년 '+(m+1)+'월';const f=new Date(y,m,1),l=new Date(y,m+1,0);let html=['일','월','화','수','목','금','토'].map(d=>'<div class="dow">'+d+'</div>').join('');for(let i=0;i<f.getDay();i++)html+='<div></div>';for(let d=1;d<=l.getDate();d++){const key=iso(new Date(y,m,d));html+='<div class="day '+(history.some(h=>h.date===key)?'done':'')+'" data-day="'+key+'">'+d+'</div>'}q('#calendarGrid').innerHTML=html}
 function showHistory(date){const h=history.find(x=>x.date===date);if(!h)return;q('#historyTitle').textContent=date+' 운동';q('#historyDetail').innerHTML=h.exercises.map(e=>'<div class="historyExercise"><strong>'+esc(e.name)+'</strong><div class="small">'+esc(e.cat)+(e.cat!=='유산소'?' · '+(e.weight||0)+'kg':'')+'</div><div style="margin-top:6px">'+e.sets.map((s,i)=>(i+1)+'세트 '+s.reps+(s.fail?' F':'')).join(' · ')+'</div>'+(e.note?'<div class="small" style="margin-top:5px">메모: '+esc(e.note)+'</div>':'')+'</div>').join('');q('#historyModal').classList.add('open')}
 
