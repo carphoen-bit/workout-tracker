@@ -94,9 +94,11 @@ function startTimer(ex){timerExId=ex.id;timerEnd=Date.now()+ex.rest*1000;clearIn
 function updateTimer(){if(!timerExId)return;const ex=today.find(e=>e.id===timerExId);if(!ex){timerExId=null;clearInterval(timerId);return}const sec=Math.max(0,Math.ceil((timerEnd-Date.now())/1000));const el=q('#timer-'+ex.id);if(el)el.textContent=String(Math.floor(sec/60)).padStart(2,'0')+':'+String(sec%60).padStart(2,'0');if(sec<=0){clearInterval(timerId);if(navigator.vibrate)navigator.vibrate([200,120,200]);timerExId=null;setTimeout(renderToday,300)}}
 function finish(){if(!today.length)return alert('오늘 운동을 먼저 추가해줘.');const rec={date:iso(),endedAt:new Date().toISOString(),exercises:JSON.parse(JSON.stringify(today))};history=history.filter(h=>h.date!==rec.date);history.push(rec);today=[];timerExId=null;clearInterval(timerId);save();
 
-let dragIndex=null,dragHandle=null,dragPointerId=null,lastTargetIndex=null;
 
-function getCardIndexFromPoint(x,y){
+
+let dragIndex=null,dragHandle=null,lastTargetIndex=null;
+
+function getCardIndexFromY(y){
   const cards=[...document.querySelectorAll('#todayList .card')];
   if(!cards.length)return -1;
   for(let i=0;i<cards.length;i++){
@@ -108,54 +110,83 @@ function getCardIndexFromPoint(x,y){
   return -1;
 }
 
-document.addEventListener('pointerdown',e=>{
-  const h=e.target.closest&&e.target.closest('[data-drag]');
-  if(!h)return;
-  e.preventDefault();
-  e.stopPropagation();
-  dragIndex=+h.dataset.drag;
-  lastTargetIndex=dragIndex;
-  dragHandle=h;
-  dragPointerId=e.pointerId;
-  h.classList.add('dragging');
-  document.body.style.userSelect='none';
-  try{h.setPointerCapture(e.pointerId)}catch{}
-});
-
-document.addEventListener('pointermove',e=>{
-  if(dragIndex===null || e.pointerId!==dragPointerId)return;
-  e.preventDefault();
-  const cards=[...document.querySelectorAll('#todayList .card')];
-  cards.forEach(x=>x.classList.remove('drag-over'));
-  const targetIndex=getCardIndexFromPoint(e.clientX,e.clientY);
-  if(targetIndex>=0){
-    lastTargetIndex=targetIndex;
-    if(cards[targetIndex])cards[targetIndex].classList.add('drag-over');
-  }
-},{passive:false});
-
-document.addEventListener('pointerup',e=>{
-  if(dragIndex===null || e.pointerId!==dragPointerId)return;
-  e.preventDefault();
+function clearDragVisuals(){
   document.querySelectorAll('#todayList .card.drag-over').forEach(x=>x.classList.remove('drag-over'));
   if(dragHandle)dragHandle.classList.remove('dragging');
-  document.body.style.userSelect='';
-  const from=dragIndex;
-  const to=lastTargetIndex;
-  dragIndex=null;dragHandle=null;dragPointerId=null;lastTargetIndex=null;
+}
+
+function finishDrag(){
+  if(dragIndex===null)return;
+  const from=dragIndex,to=lastTargetIndex;
+  clearDragVisuals();
+  dragIndex=null;dragHandle=null;lastTargetIndex=null;
   if(to!==null && to>=0 && to!==from){
     const moved=today.splice(from,1)[0];
     today.splice(to,0,moved);
     save();
     renderToday();
   }
+}
+
+document.addEventListener('touchstart',e=>{
+  const h=e.target.closest&&e.target.closest('[data-drag]');
+  if(!h)return;
+  const touch=e.touches[0];
+  dragIndex=+h.dataset.drag;
+  lastTargetIndex=dragIndex;
+  dragHandle=h;
+  h.classList.add('dragging');
+  document.body.style.overflow='hidden';
+},{passive:true});
+
+document.addEventListener('touchmove',e=>{
+  if(dragIndex===null)return;
+  e.preventDefault();
+  const touch=e.touches[0];
+  const cards=[...document.querySelectorAll('#todayList .card')];
+  cards.forEach(x=>x.classList.remove('drag-over'));
+  const idx=getCardIndexFromY(touch.clientY);
+  if(idx>=0){
+    lastTargetIndex=idx;
+    if(cards[idx])cards[idx].classList.add('drag-over');
+  }
+},{passive:false});
+
+document.addEventListener('touchend',e=>{
+  if(dragIndex===null)return;
+  document.body.style.overflow='';
+  finishDrag();
+});
+document.addEventListener('touchcancel',()=>{
+  document.body.style.overflow='';
+  clearDragVisuals();
+  dragIndex=null;dragHandle=null;lastTargetIndex=null;
 });
 
-document.addEventListener('pointercancel',()=>{
-  document.querySelectorAll('#todayList .card.drag-over').forEach(x=>x.classList.remove('drag-over'));
-  if(dragHandle)dragHandle.classList.remove('dragging');
-  document.body.style.userSelect='';
-  dragIndex=null;dragHandle=null;dragPointerId=null;lastTargetIndex=null;
+// desktop mouse fallback
+document.addEventListener('mousedown',e=>{
+  const h=e.target.closest&&e.target.closest('[data-drag]');
+  if(!h)return;
+  e.preventDefault();
+  dragIndex=+h.dataset.drag;
+  lastTargetIndex=dragIndex;
+  dragHandle=h;
+  h.classList.add('dragging');
+});
+document.addEventListener('mousemove',e=>{
+  if(dragIndex===null || !dragHandle)return;
+  e.preventDefault();
+  const cards=[...document.querySelectorAll('#todayList .card')];
+  cards.forEach(x=>x.classList.remove('drag-over'));
+  const idx=getCardIndexFromY(e.clientY);
+  if(idx>=0){
+    lastTargetIndex=idx;
+    if(cards[idx])cards[idx].classList.add('drag-over');
+  }
+});
+document.addEventListener('mouseup',()=>{
+  if(dragIndex===null)return;
+  finishDrag();
 });
 
 renderToday();renderCalendar();alert('오운완! 오늘 기록을 저장했어. ✅')}
